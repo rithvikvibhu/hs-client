@@ -3,8 +3,12 @@
 'use strict';
 
 const Config = require('bcfg');
-const WalletClient = require('../lib/wallet');
+const {WalletClient} = require('../lib/client');
 const EXP = 6;
+
+// NOTE: This is part of generated `hs-client`.
+// Don't introduce any unnecessary dependencies to this.
+// This needs to be remain as is for hs-client to be simple.
 
 const ports = {
   main: 12039,
@@ -17,6 +21,7 @@ const HELP = `
 Commands:
   $ abandon [hash]: Abandon a transaction.
   $ account create [account-name]: Create account.
+  $ account modify [account-name]: Set account options.
   $ account get [account-name]: Get account details.
   $ account list: List account names.
   $ address [account-name]: Derive new address.
@@ -33,7 +38,9 @@ Commands:
   $ key [address]: Get wallet key by address.
   $ listen: Listen for events.
   $ lock: Lock wallet.
+  $ mkauctiontxs [name] [bid] [lockup] [broadcast]: Create bid and reveal TXs.
   $ mktx [address] [value]: Create transaction.
+  $ mkwallet [id]: Create wallet.
   $ pending: View pending TXs.
   $ resendwallet [id]: Resend pending transactions for a single wallet.
   $ retoken: Create new api key.
@@ -53,7 +60,6 @@ require authorization token.
 Admin commands require admin permissions for provided authorization token:
   $ backup [path]: Backup the wallet db.
   $ master: View wallet master key.
-  $ mkwallet [id]: Create wallet.
   $ rescan [height]: Rescan for transactions.
   $ resend: Resend pending transactions for all wallets.
   $ rpc [command] [args]: Execute RPC command.
@@ -79,7 +85,7 @@ class CLI {
         'n': 'network',
         'u': 'url',
         'uri': 'url',
-        'k': 'api-key',
+        'k': 'apikey',
         's': 'ssl',
         'h': 'httphost',
         'p': 'httpport'
@@ -139,6 +145,7 @@ class CLI {
       bip39Passphrase: this.config.str('bip39Passphrase'),
       watchOnly: this.config.has('key') ? true : this.config.bool('watch'),
       accountKey: this.config.str('key'),
+      lookahead: this.config.uint('lookahead'),
       language: this.config.str('language')
     };
 
@@ -218,10 +225,23 @@ class CLI {
       m: this.config.uint('m'),
       n: this.config.uint('n'),
       witness: this.config.bool('witness'),
-      accountKey: this.config.str('key')
+      accountKey: this.config.str('key'),
+      lookahead: this.config.uint('lookahead')
     };
 
     const account = await this.wallet.createAccount(name, options);
+
+    this.log(account);
+  }
+
+  async modifyAccount() {
+    const name = this.config.str([0, 'name']);
+
+    const options = {
+      lookahead: this.config.uint('lookahead')
+    };
+
+    const account = await this.wallet.modifyAccount(name, options);
 
     this.log(account);
   }
@@ -350,6 +370,20 @@ class CLI {
     const tx = await this.wallet.send(options);
 
     this.log(tx);
+  }
+
+  async createAuctionTxs() {
+    const options = {
+      name: this.config.str([0, 'name']),
+      bid: this.config.ufixed([1, 'bid'], EXP),
+      lockup: this.config.ufixed([2, 'lockup'], EXP),
+      broadcastBid: this.config.bool([3, 'broadcastBid']),
+      passphrase: this.config.str('passphrase')
+    };
+
+    const txs = await this.wallet.createAuctionTxs(options);
+
+    this.log(txs);
   }
 
   async createTX() {
@@ -558,6 +592,11 @@ class CLI {
           await this.createAccount();
           break;
         }
+        if (this.argv[0] === 'modify') {
+          this.argv.shift();
+          await this.modifyAccount();
+          break;
+        }
         if (this.argv[0] === 'get')
           this.argv.shift();
         await this.getAccount();
@@ -609,6 +648,9 @@ class CLI {
         break;
       case 'master':
         await this.getMaster();
+        break;
+      case 'mkauctiontxs':
+        await this.createAuctionTxs();
         break;
       case 'mktx':
         await this.createTX();
